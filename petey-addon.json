@@ -1,0 +1,1 @@
+{"api_version":1,"id":"petey-opencode","name":"OpenCode","version":"0.3.1","description":"Let PETEY start, monitor, and cancel OpenCode coding-agent runs.","entrypoint":"addon.py","panel":"panel.html","script":"panel.js","stylesheet":"panel.css","navigation":{"label":"OpenCode","icon":"⌘"}}
