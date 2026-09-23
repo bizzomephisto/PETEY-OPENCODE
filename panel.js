@@ -22,6 +22,8 @@
         e.model.textContent = "";
         (data.models || []).forEach(model => e.model.add(new Option(model, model)));
         e.model.value = data.model || "";
+        const refreshed = data.models_refreshed_at ? ` · ${data.models_refreshed_at}` : "";
+        e.modelStatus.textContent = `${data.models_source || "bundled fallback"}${refreshed}`;
     }
 
     function announceFinished(run) {
@@ -135,12 +137,27 @@
             state: document.getElementById("petey-opencode-state"),
             project: document.getElementById("oc-project"),
             model: document.getElementById("oc-model"),
+            modelStatus: document.getElementById("oc-model-status"),
+            refreshModels: document.getElementById("oc-refresh-models"),
             start: document.getElementById("oc-start"),
             runs: document.getElementById("oc-runs"),
             goal: document.getElementById("oc-goal"),
             message: document.getElementById("oc-message"),
         };
         document.getElementById("oc-browse").onclick = browse;
+        e.refreshModels.onclick = async () => {
+            e.refreshModels.disabled = true;
+            e.message.textContent = "Refreshing OpenCode models…";
+            try {
+                const data = await api("/models/refresh", {method: "POST"});
+                folders(data);
+                e.message.textContent = `Found ${(data.models || []).length} OpenCode models.`;
+            } catch (error) {
+                e.message.textContent = error.message;
+            } finally {
+                e.refreshModels.disabled = false;
+            }
+        };
         document.getElementById("oc-save").onclick = () => api("/config", {
             method: "POST", headers: {"Content-Type": "application/json"},
             body: JSON.stringify({project_dir: e.project.value, model: e.model.value}),

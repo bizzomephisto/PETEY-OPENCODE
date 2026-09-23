@@ -33,7 +33,7 @@ opencode --version
 
 ## Install
 
-1. Download `petey-opencode-v0.3.1.zip` from the [latest release](https://github.com/bizzomephisto/PETEY-OPENCODE/releases/latest).
+1. Download `petey-opencode-v0.3.3.zip` from the [latest release](https://github.com/bizzomephisto/PETEY-OPENCODE/releases/latest).
 2. Extract the archive. It contains one folder named `petey-opencode`.
 3. In PETEY, open **Add-ons** and select **Open add-ons folder**.
 4. Copy the complete `petey-opencode` folder into that directory.

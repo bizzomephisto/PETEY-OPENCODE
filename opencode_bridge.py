@@ -6,7 +6,10 @@ INTENT=re.compile(r"\bopen\s*code\b",re.I)
 START=re.compile(r"(?:\b(?:use|ask|have|start|run)\b.{0,80}\bopen\s*code\b|\bopen\s*code\b.{0,80}\b(?:fix|build|create|edit|change|work|run|start)\b)",re.I|re.S)
 STATUS=re.compile(r"(?:\bopen\s*code\b.{0,60}\b(?:status|progress|done|output|result)\b|\b(?:status|progress|done|output|result)\b.{0,60}\bopen\s*code\b)",re.I|re.S)
 CODE_STATUS=re.compile(r"(?:\b(?:what(?:'s|\s+is)|check|show|give\s+me)?\s*(?:the\s+)?(?:status|progress)\s+(?:of\s+)?(?:the\s+)?(?:code|coding|project|task|work)\b|\b(?:is|has)\s+(?:the\s+)?(?:code|coding|project|task|work).{0,30}\b(?:done|finished|complete)\b)",re.I|re.S)
-FREE_MODELS=("opencode/big-pickle","opencode/ling-3.0-flash-fin-free","opencode/mimo-v2.5-free","opencode/muse-spark-1.2-contributor-free","opencode/muse-spark-1.3-contributor-free","opencode/nemotron-3-ultra-free","opencode/nemotron-3.5-lightning-free")
+FREE_MODELS=("opencode/big-pickle","opencode/ling-3.0-flash-fin-free","opencode/mimo-v2.6-flash-free","opencode/muse-spark-1.2-contributor-free","opencode/muse-spark-1.3-contributor-free","opencode/nemotron-3-ultra-free","opencode/nemotron-3.5-lightning-free")
+MODEL_MIGRATIONS={"opencode/mimo-v2.5-free":"opencode/mimo-v2.6-flash-free"}
+MODEL_NAME=re.compile(r"opencode/[A-Za-z0-9._-]+")
+MODEL_REFRESH_SECONDS=6*60*60
 class BridgeError(Exception): pass
 
 class Run:
@@ -31,7 +34,9 @@ class Run:
                         root=Path(self.project).resolve(); raw=Path(str(candidate)).expanduser()
                         path=(raw if raw.is_absolute() else root/raw).resolve()
                         if path.is_relative_to(root) and str(path) not in self.artifacts: self.artifacts.append(str(path))
-                elif kind=="error": message=str(event.get("error") or "OpenCode error")
+                elif kind=="error":
+                    error=event.get("error") or {}; data=error.get("data") if isinstance(error,dict) else {}
+                    message=str((data or {}).get("message") or (error.get("message") if isinstance(error,dict) else error) or "OpenCode error")
                 else: message=""
                 if message: self.output=(self.output+message+"\n")[-100000:]
             except (ValueError,TypeError): self.output=(self.output+line)[-100000:]
@@ -49,24 +54,49 @@ class Run:
 class OpenCodeBridge:
     def __init__(self,data_dir):
         self.data_dir=Path(data_dir); self.data_dir.mkdir(parents=True,exist_ok=True); self.lock=threading.RLock(); self.runs={}; self.history_path=self.data_dir/"runs.json"
+        self.models=list(FREE_MODELS); self.models_source="bundled fallback"; self.models_refreshed_at=""; self.models_checked_at=0.0
         try:
             loaded=json.loads(self.history_path.read_text()); self.history=[x for x in loaded if isinstance(x,dict) and isinstance(x.get("id"),int)][-50:] if isinstance(loaded,list) else []
         except Exception: self.history=[]
         self.next_id=max([int(x["id"]) for x in self.history]+[0])+1
         try: saved=json.loads((self.data_dir/"config.json").read_text())
         except Exception: saved={}
-        self.project=str(saved.get("project_dir") or ""); self.model=str(saved.get("model") or FREE_MODELS[0]); self.recent=[str(x) for x in saved.get("recent_project_dirs",[]) if isinstance(x,str)][:8]
+        self.project=str(saved.get("project_dir") or ""); saved_model=str(saved.get("model") or FREE_MODELS[0]); self.model=MODEL_MIGRATIONS.get(saved_model,saved_model); self.recent=[str(x) for x in saved.get("recent_project_dirs",[]) if isinstance(x,str)][:8]
+        if self.model not in FREE_MODELS: self.model=FREE_MODELS[0]
         if self.project and self.project not in self.recent: self.recent.insert(0,self.project)
     def binary(self): return next((x for x in (shutil.which("opencode"),str(Path.home()/".opencode/bin/opencode")) if x and Path(x).is_file() and os.access(x,os.X_OK)),None)
-    def config(self): return {"project_dir":self.project,"recent_project_dirs":self.recent,"model":self.model,"models":list(FREE_MODELS)}
+    def config(self): return {"project_dir":self.project,"recent_project_dirs":self.recent,"model":self.model,"models":list(self.models),"models_source":self.models_source,"models_refreshed_at":self.models_refreshed_at}
+    def refresh_models(self,force=False):
+        with self.lock:
+            if not force and self.models_checked_at and time.monotonic()-self.models_checked_at<MODEL_REFRESH_SECONDS: return self.config()
+            binary=self.binary(); self.models_checked_at=time.monotonic()
+            if not binary:
+                if force: raise BridgeError("OpenCode is not installed, so its model catalog cannot be refreshed.")
+                return self.config()
+            try:
+                result=subprocess.run([binary,"models","opencode"],stdin=subprocess.DEVNULL,capture_output=True,text=True,timeout=20,check=False)
+            except (OSError,subprocess.TimeoutExpired) as exc:
+                if force: raise BridgeError("Could not refresh OpenCode models: "+str(exc)) from exc
+                return self.config()
+            models=[]
+            for line in result.stdout.splitlines():
+                name=line.strip()
+                if MODEL_NAME.fullmatch(name) and name not in models: models.append(name)
+            if result.returncode or not models:
+                if force: raise BridgeError("OpenCode did not return a usable model catalog.")
+                return self.config()
+            self.models=models[:200]; self.models_source="OpenCode catalog"; self.models_refreshed_at=time.strftime("%Y-%m-%d %H:%M:%S")
+            self.model=MODEL_MIGRATIONS.get(self.model,self.model)
+            if self.model not in self.models: self.model=self.models[0]
+            return self.config()
     def save_config(self,project,model=None):
         project=str(project or "").strip()
         if not Path(project).is_dir(): raise BridgeError("Choose an existing project directory.")
         self.project=project; self.model=str(model or self.model)
-        if self.model not in FREE_MODELS: raise BridgeError("Choose an available OpenCode model.")
+        if self.model not in self.models: raise BridgeError("Choose an available OpenCode model.")
         self.recent=[project,*(x for x in self.recent if x!=project)][:8]
         tmp=self.data_dir/"config.tmp"; tmp.write_text(json.dumps(self.config(),indent=2)); os.chmod(tmp,0o600); tmp.replace(self.data_dir/"config.json"); return self.config()
-    def status(self): return {**self.config(),"installed":bool(self.binary()),"binary":self.binary(),"running":sum(x.state=="running" for x in self.runs.values())}
+    def status(self): self.refresh_models(); return {**self.config(),"installed":bool(self.binary()),"binary":self.binary(),"running":sum(x.state=="running" for x in self.runs.values())}
     def start(self,goal,label="petey chat"):
         goal=str(goal or "").strip()
         if not goal: raise BridgeError("Give OpenCode a task first.")

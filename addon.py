@@ -21,6 +21,9 @@ def setup(context):
         try: return jsonify({"ok":True,**bridge.save_config(data.get("project_dir"),data.get("model"))})
         except BridgeError as exc: return fail(exc)
     def status(): return jsonify({"ok":True,**bridge.status()})
+    def refresh_models():
+        try: return jsonify({"ok":True,**bridge.refresh_models(force=True)})
+        except BridgeError as exc: return fail(exc)
     def runs():
         if request.method == "GET": return jsonify({"ok":True,"runs":bridge.recent_runs()})
         try: return jsonify({"ok":True,"run":bridge.start(body().get("goal"),"panel")})
@@ -34,7 +37,7 @@ def setup(context):
     def artifact(run_id, index):
         try: return send_file(bridge.artifact(run_id, index), as_attachment=False)
         except BridgeError as exc: return fail(exc,404)
-    for suffix, methods, view in (("config",["GET","POST"],config),("status",["GET"],status),("runs",["GET","POST"],runs),("runs/detail",["GET"],detail),("runs/cancel",["POST"],cancel)):
+    for suffix, methods, view in (("config",["GET","POST"],config),("status",["GET"],status),("models/refresh",["POST"],refresh_models),("runs",["GET","POST"],runs),("runs/detail",["GET"],detail),("runs/cancel",["POST"],cancel)):
         context.app.add_url_rule("/api/addons/petey-opencode/"+suffix, endpoint="addon_petey_opencode_"+suffix.replace("/","_"), view_func=view, methods=methods)
     context.app.add_url_rule("/api/addons/petey-opencode/artifacts/<int:run_id>/<int:index>", endpoint="addon_petey_opencode_artifact", view_func=artifact, methods=["GET"])
     return Addon(bridge)
