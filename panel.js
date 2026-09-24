@@ -4,7 +4,37 @@
     let e = {};
     let polling = false;
     let statesReady = false;
+    let chatActivityEnabled = true;
     const knownStates = new Map();
+
+    function ensureChatActivity() {
+        let button = document.getElementById("oc-chat-activity");
+        if (button) return button;
+        const headerMenu = document.getElementById("chat-header-menu");
+        if (!headerMenu) return null;
+        button = document.createElement("button");
+        button.id = "oc-chat-activity";
+        button.className = "oc-chat-activity";
+        button.type = "button";
+        button.innerHTML = '<span class="oc-chat-activity-icon" aria-hidden="true">⌘</span><span class="oc-chat-activity-count">0</span>';
+        button.addEventListener("click", () => {
+            document.querySelector('.nav-button[data-view="addon-petey-opencode"]')?.click();
+        });
+        headerMenu.before(button);
+        return button;
+    }
+
+    function updateChatActivity(items) {
+        const button = ensureChatActivity();
+        if (!button) return;
+        button.hidden = !chatActivityEnabled;
+        const count = items.filter(run => run.state === "running").length;
+        const noun = count === 1 ? "job" : "jobs";
+        button.querySelector(".oc-chat-activity-count").textContent = String(count);
+        button.classList.toggle("is-running", count > 0);
+        button.title = `OpenCode: ${count} ${noun} running`;
+        button.setAttribute("aria-label", `${button.title}. Open OpenCode.`);
+    }
 
     function api(path, options) {
         return fetch(B + path, options).then(async response => {
@@ -22,6 +52,11 @@
         e.model.textContent = "";
         (data.models || []).forEach(model => e.model.add(new Option(model, model)));
         e.model.value = data.model || "";
+        e.allowRepeatedTools.checked = data.allow_repeated_tools !== false;
+        chatActivityEnabled = data.show_chat_activity !== false;
+        e.showChatActivity.checked = chatActivityEnabled;
+        const activity = ensureChatActivity();
+        if (activity) activity.hidden = !chatActivityEnabled;
         const refreshed = data.models_refreshed_at ? ` · ${data.models_refreshed_at}` : "";
         e.modelStatus.textContent = `${data.models_source || "bundled fallback"}${refreshed}`;
     }
@@ -74,6 +109,13 @@
                 const link = document.createElement("a");
                 link.href = artifact.url;
                 link.textContent = `Open ${artifact.name}`;
+                link.target = "_blank";
+                link.rel = "noopener";
+                link.addEventListener("click", event => {
+                    if (!window.peteyOpenArtifactPreview) return;
+                    event.preventDefault();
+                    window.peteyOpenArtifactPreview(artifact.url, artifact.name);
+                });
                 row.append(link, document.createTextNode(" "));
             });
             if (run.state === "running") {
@@ -93,8 +135,10 @@
 
     async function loadRuns(render) {
         const data = await api("/runs");
-        trackTransitions(data.runs || []);
-        if (render) renderRuns(data.runs || []);
+        const runs = data.runs || [];
+        trackTransitions(runs);
+        updateChatActivity(runs);
+        if (render) renderRuns(runs);
     }
 
     async function poll() {
@@ -133,12 +177,15 @@
     }
 
     document.addEventListener("DOMContentLoaded", () => {
+        ensureChatActivity();
         e = {
             state: document.getElementById("petey-opencode-state"),
             project: document.getElementById("oc-project"),
             model: document.getElementById("oc-model"),
             modelStatus: document.getElementById("oc-model-status"),
             refreshModels: document.getElementById("oc-refresh-models"),
+            allowRepeatedTools: document.getElementById("oc-allow-repeated-tools"),
+            showChatActivity: document.getElementById("oc-show-chat-activity"),
             start: document.getElementById("oc-start"),
             runs: document.getElementById("oc-runs"),
             goal: document.getElementById("oc-goal"),
@@ -160,7 +207,7 @@
         };
         document.getElementById("oc-save").onclick = () => api("/config", {
             method: "POST", headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({project_dir: e.project.value, model: e.model.value}),
+            body: JSON.stringify({project_dir: e.project.value, model: e.model.value, allow_repeated_tools: e.allowRepeatedTools.checked, show_chat_activity: e.showChatActivity.checked}),
         }).then(data => {
             folders(data);
             e.message.textContent = "Setup saved.";

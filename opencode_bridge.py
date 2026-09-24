@@ -13,12 +13,13 @@ MODEL_REFRESH_SECONDS=6*60*60
 class BridgeError(Exception): pass
 
 class Run:
-    def __init__(self,ident,goal,project,command,label,on_finished=None):
+    def __init__(self,ident,goal,project,command,label,on_finished=None,environment=None):
         self.id,self.goal,self.project,self.command,self.label=ident,goal,project,command,label
+        self.environment=environment
         self.state,self.output,self.raw_output,self.events="running","","",0; self.returncode=None; self.artifacts=[]
         self.started_at=time.strftime("%Y-%m-%d %H:%M:%S"); self.finished_at=""; self.started=time.monotonic(); self.elapsed_s=None; self.proc=None; self.on_finished=on_finished
     def start(self):
-        self.proc=subprocess.Popen(self.command,cwd=self.project,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1,start_new_session=True)
+        self.proc=subprocess.Popen(self.command,cwd=self.project,env=self.environment,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1,start_new_session=True)
         threading.Thread(target=self._collect,daemon=True).start()
     def _collect(self):
         for line in self.proc.stdout:
@@ -61,11 +62,11 @@ class OpenCodeBridge:
         self.next_id=max([int(x["id"]) for x in self.history]+[0])+1
         try: saved=json.loads((self.data_dir/"config.json").read_text())
         except Exception: saved={}
-        self.project=str(saved.get("project_dir") or ""); saved_model=str(saved.get("model") or FREE_MODELS[0]); self.model=MODEL_MIGRATIONS.get(saved_model,saved_model); self.recent=[str(x) for x in saved.get("recent_project_dirs",[]) if isinstance(x,str)][:8]
+        self.project=str(saved.get("project_dir") or ""); saved_model=str(saved.get("model") or FREE_MODELS[0]); self.model=MODEL_MIGRATIONS.get(saved_model,saved_model); self.recent=[str(x) for x in saved.get("recent_project_dirs",[]) if isinstance(x,str)][:8]; self.allow_repeated_tools=saved.get("allow_repeated_tools",True) is not False; self.show_chat_activity=saved.get("show_chat_activity",True) is not False
         if self.model not in FREE_MODELS: self.model=FREE_MODELS[0]
         if self.project and self.project not in self.recent: self.recent.insert(0,self.project)
     def binary(self): return next((x for x in (shutil.which("opencode"),str(Path.home()/".opencode/bin/opencode")) if x and Path(x).is_file() and os.access(x,os.X_OK)),None)
-    def config(self): return {"project_dir":self.project,"recent_project_dirs":self.recent,"model":self.model,"models":list(self.models),"models_source":self.models_source,"models_refreshed_at":self.models_refreshed_at}
+    def config(self): return {"project_dir":self.project,"recent_project_dirs":self.recent,"model":self.model,"models":list(self.models),"models_source":self.models_source,"models_refreshed_at":self.models_refreshed_at,"allow_repeated_tools":self.allow_repeated_tools,"show_chat_activity":self.show_chat_activity}
     def refresh_models(self,force=False):
         with self.lock:
             if not force and self.models_checked_at and time.monotonic()-self.models_checked_at<MODEL_REFRESH_SECONDS: return self.config()
@@ -89,13 +90,25 @@ class OpenCodeBridge:
             self.model=MODEL_MIGRATIONS.get(self.model,self.model)
             if self.model not in self.models: self.model=self.models[0]
             return self.config()
-    def save_config(self,project,model=None):
+    def save_config(self,project,model=None,allow_repeated_tools=None,show_chat_activity=None):
         project=str(project or "").strip()
         if not Path(project).is_dir(): raise BridgeError("Choose an existing project directory.")
         self.project=project; self.model=str(model or self.model)
+        if allow_repeated_tools is not None: self.allow_repeated_tools=bool(allow_repeated_tools)
+        if show_chat_activity is not None: self.show_chat_activity=bool(show_chat_activity)
         if self.model not in self.models: raise BridgeError("Choose an available OpenCode model.")
         self.recent=[project,*(x for x in self.recent if x!=project)][:8]
         tmp=self.data_dir/"config.tmp"; tmp.write_text(json.dumps(self.config(),indent=2)); os.chmod(tmp,0o600); tmp.replace(self.data_dir/"config.json"); return self.config()
+    def run_environment(self):
+        environment=os.environ.copy()
+        if not self.allow_repeated_tools: return environment
+        try:
+            permissions=json.loads(environment.get("OPENCODE_PERMISSION","{}"))
+            if not isinstance(permissions,dict): permissions={}
+        except (TypeError,ValueError): permissions={}
+        permissions["doom_loop"]="allow"
+        environment["OPENCODE_PERMISSION"]=json.dumps(permissions,separators=(",",":"))
+        return environment
     def status(self): self.refresh_models(); return {**self.config(),"installed":bool(self.binary()),"binary":self.binary(),"running":sum(x.state=="running" for x in self.runs.values())}
     def start(self,goal,label="petey chat"):
         goal=str(goal or "").strip()
@@ -107,7 +120,7 @@ class OpenCodeBridge:
         with self.lock:
             if sum(x.state=="running" for x in self.runs.values())>=2: raise BridgeError("Two OpenCode runs are already active.")
             ident=self.next_id; self.next_id+=1
-            run=Run(ident,goal,self.project,[binary,"run","--format","json","--model",self.model,"--dir",self.project,goal],label or goal[:80],self._archive)
+            run=Run(ident,goal,self.project,[binary,"run","--format","json","--model",self.model,"--dir",self.project,goal],label or goal[:80],self._archive,self.run_environment())
             try: run.start()
             except OSError as exc: raise BridgeError("Could not start OpenCode: "+str(exc)) from exc
             self.runs[ident]=run

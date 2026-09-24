@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.3.7 — 2026-09-23
+
+- Keep interactive HTML games working inside PETEY's isolated artifact preview.
+- Provide preview-only in-memory `localStorage` and `sessionStorage` without exposing PETEY's origin.
+
+## v0.3.6 — 2026-09-23
+
+- Add an optional compact OpenCode activity badge to PETEY's desktop text-chat header.
+- Show the live running-job count and open the OpenCode panel when the badge is clicked.
+
+## v0.3.5 — 2026-09-23
+
+- Add a setting for unattended runs to continue through OpenCode's `doom_loop` recovery prompt.
+- Keep broad `--auto` approval disabled and preserve all other OpenCode permission rules.
+
+## v0.3.4 — 2026-09-23
+
+- Open generated web artifacts in PETEY's sandboxed preview instead of replacing the app.
+- Add Close and Open in browser controls through the PETEY host viewer.
+
 ## v0.3.3 — 2026-09-22
 
 - Load the current model catalog from the installed OpenCode CLI.

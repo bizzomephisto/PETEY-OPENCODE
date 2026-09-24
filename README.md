@@ -18,6 +18,10 @@ OpenCode's own permission rules remain active. This add-on does not pass `--auto
 - Keep the latest 50 run summaries in private add-on data.
 - Expose separate PETEY control permissions for starting and viewing agent runs.
 - Link only to reported files that resolve inside the configured project folder.
+- Preview generated web artifacts inside PETEY with close and browser pop-out controls.
+- Run interactive HTML previews with temporary local and session storage while keeping PETEY isolated.
+- Continue through OpenCode's repeated-tool recovery prompt during unattended runs without enabling broad `--auto` approval.
+- Optionally show the active OpenCode job count in PETEY's text-chat header and open the OpenCode panel with one click.
 
 ## Requirements
 
@@ -33,7 +37,7 @@ opencode --version
 
 ## Install
 
-1. Download `petey-opencode-v0.3.3.zip` from the [latest release](https://github.com/bizzomephisto/PETEY-OPENCODE/releases/latest).
+1. Download `petey-opencode-v0.3.7.zip` from the [latest release](https://github.com/bizzomephisto/PETEY-OPENCODE/releases/latest).
 2. Extract the archive. It contains one folder named `petey-opencode`.
 3. In PETEY, open **Add-ons** and select **Open add-ons folder**.
 4. Copy the complete `petey-opencode` folder into that directory.
@@ -48,6 +52,11 @@ For a source checkout, copy this repository's contents into a folder named `pete
 3. Choose an available model.
 4. Select **Save setup**.
 5. Open **Allow Petey to control** and enable the OpenCode capabilities for the surfaces you trust.
+
+The **Continue after OpenCode detects a repeated tool call** option is enabled by
+default because PETEY launches OpenCode without an interactive terminal. It allows
+only OpenCode's `doom_loop` recovery prompt. OpenCode's other allow, ask, and deny
+rules continue to apply, and PETEY still does not pass `--auto`.
 
 Start a run from the panel or say:
 
