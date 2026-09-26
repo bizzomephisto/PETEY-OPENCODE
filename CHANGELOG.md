@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0
+
+- Add an optional Command Center panel showing active OpenCode work and recent output.
+- Keep the compact activity badge beside the composer and hide it while OpenCode is idle.
+
+## v0.3.9 — 2026-09-25
+
+- Move the OpenCode job indicator into PETEY's open Command Center drawer.
+- Fall back to a dedicated dock beside the desktop composer when the drawer is
+  closed or disabled, using the same compact rounded-square control shape.
+- Obey PETEY's per-add-on **Show badges** setting immediately.
+
+## v0.3.8 — 2026-09-24
+
+- Replace the chat activity badge's command symbol with a blinking terminal block
+  cursor while idle and a classic `/ - \\ |` spinner while jobs are running.
+
 ## v0.3.7 — 2026-09-23
 
 - Keep interactive HTML games working inside PETEY's isolated artifact preview.

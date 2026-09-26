@@ -5,35 +5,85 @@
     let polling = false;
     let statesReady = false;
     let chatActivityEnabled = true;
+    let activeRunCount = 0;
+    let currentWorkHost = null;
     const knownStates = new Map();
+
+    function placeChatActivity() {
+        const button = document.getElementById("oc-chat-activity");
+        if (!button) return;
+        const dock = document.getElementById("chat-utility-dock");
+        const badgeAllowed = window.PETEY_ADDON_INTERFACE?.["petey-opencode"]?.badges !== false;
+        if (dock && button.parentElement !== dock) dock.append(button);
+        button.hidden = !chatActivityEnabled || !badgeAllowed || activeRunCount === 0;
+    }
 
     function ensureChatActivity() {
         let button = document.getElementById("oc-chat-activity");
         if (button) return button;
-        const headerMenu = document.getElementById("chat-header-menu");
-        if (!headerMenu) return null;
         button = document.createElement("button");
         button.id = "oc-chat-activity";
         button.className = "oc-chat-activity";
         button.type = "button";
-        button.innerHTML = '<span class="oc-chat-activity-icon" aria-hidden="true">⌘</span><span class="oc-chat-activity-count">0</span>';
+        button.innerHTML = '<span class="oc-chat-activity-icon" aria-hidden="true"></span><span class="oc-chat-activity-count">0</span>';
         button.addEventListener("click", () => {
             document.querySelector('.nav-button[data-view="addon-petey-opencode"]')?.click();
         });
-        headerMenu.before(button);
+        document.getElementById("chat-utility-dock")?.append(button);
         return button;
+    }
+
+    function syncChatActivitySurface() {
+        const button = ensureChatActivity();
+        if (!button) return;
+        placeChatActivity();
     }
 
     function updateChatActivity(items) {
         const button = ensureChatActivity();
         if (!button) return;
-        button.hidden = !chatActivityEnabled;
         const count = items.filter(run => run.state === "running").length;
+        activeRunCount = count;
         const noun = count === 1 ? "job" : "jobs";
         button.querySelector(".oc-chat-activity-count").textContent = String(count);
         button.classList.toggle("is-running", count > 0);
         button.title = `OpenCode: ${count} ${noun} running`;
         button.setAttribute("aria-label", `${button.title}. Open OpenCode.`);
+        placeChatActivity();
+    }
+
+    function renderCurrentWork(items) {
+        if (!currentWorkHost) return;
+        const running = items.filter(run => run.state === "running");
+        currentWorkHost.replaceChildren();
+        if (!running.length) {
+            const idle = document.createElement("p");
+            idle.className = "oc-current-idle";
+            idle.textContent = "No OpenCode job is running.";
+            currentWorkHost.append(idle);
+            return;
+        }
+        running.slice(0, 2).forEach(run => {
+            const job = document.createElement("article");
+            job.className = "oc-current-work";
+            const heading = document.createElement("strong");
+            heading.textContent = `#${run.id} ${run.label}`;
+            const project = document.createElement("small");
+            project.textContent = run.project_dir || "Project unavailable";
+            const output = document.createElement("pre");
+            output.className = "oc-current-output";
+            output.textContent = (run.output || "Waiting for OpenCode output…").slice(-1400);
+            job.append(heading, project, output);
+            currentWorkHost.append(job);
+        });
+        const open = document.createElement("button");
+        open.type = "button";
+        open.className = "oc-current-open";
+        open.textContent = "Open OpenCode";
+        open.addEventListener("click", () => {
+            document.querySelector('.nav-button[data-view="addon-petey-opencode"]')?.click();
+        });
+        currentWorkHost.append(open);
     }
 
     function api(path, options) {
@@ -55,8 +105,7 @@
         e.allowRepeatedTools.checked = data.allow_repeated_tools !== false;
         chatActivityEnabled = data.show_chat_activity !== false;
         e.showChatActivity.checked = chatActivityEnabled;
-        const activity = ensureChatActivity();
-        if (activity) activity.hidden = !chatActivityEnabled;
+        syncChatActivitySurface();
         const refreshed = data.models_refreshed_at ? ` · ${data.models_refreshed_at}` : "";
         e.modelStatus.textContent = `${data.models_source || "bundled fallback"}${refreshed}`;
     }
@@ -138,6 +187,7 @@
         const runs = data.runs || [];
         trackTransitions(runs);
         updateChatActivity(runs);
+        renderCurrentWork(runs);
         if (render) renderRuns(runs);
     }
 
@@ -178,6 +228,19 @@
 
     document.addEventListener("DOMContentLoaded", () => {
         ensureChatActivity();
+        window.peteyInterface?.registerPanel({
+            addonId: "petey-opencode",
+            id: "petey-opencode-current-work",
+            title: "OpenCode current work",
+            icon: "▮",
+            render(container) {
+                currentWorkHost = container;
+                renderCurrentWork([]);
+                return () => { currentWorkHost = null; };
+            },
+        });
+        window.addEventListener("petey:addon-interface", placeChatActivity);
+        syncChatActivitySurface();
         e = {
             state: document.getElementById("petey-opencode-state"),
             project: document.getElementById("oc-project"),
